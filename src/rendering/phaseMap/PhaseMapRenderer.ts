@@ -1,8 +1,9 @@
 import type { ColorMode, Palette, PhaseRegion } from '../../core/types';
 import vertShaderCode from './shaders/vert.wgsl';
 import fragShaderCode from './shaders/frag.wgsl';
+import paletteShaderCode from './shaders/palette.wgsl';
 
-const PALETTE_INDEX: Record<Palette, number> = {
+export const PALETTE_INDEX: Record<Palette, number> = {
   rainbow: 0, lsd: 3, shrooms: 6, snow: 5, acid: 4, mdma: 2,
 };
 
@@ -57,7 +58,7 @@ export class PhaseMapRenderer {
     });
 
     const vertModule = device.createShaderModule({ code: vertShaderCode });
-    const fragModule = device.createShaderModule({ code: fragShaderCode });
+    const fragModule = device.createShaderModule({ code: paletteShaderCode + fragShaderCode });
 
     this.pipeline = await device.createRenderPipelineAsync({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.bindGroupLayout] }),

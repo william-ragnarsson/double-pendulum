@@ -3,5 +3,7 @@ import wgsl from 'vite-plugin-wgsl';
 
 export default defineConfig({
   server: { port: parseInt(process.env.PORT ?? '5173') },
-  plugins: [wgsl({ include: ['**/*.wgsl'] })],
+  // palette.wgsl is prepended to other shaders, so its function names must
+  // survive minification (locals and parameters are still mangled).
+  plugins: [wgsl({ include: ['**/*.wgsl'], renameFunctions: false })],
 });

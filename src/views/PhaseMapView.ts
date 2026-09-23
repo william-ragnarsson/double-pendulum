@@ -94,6 +94,7 @@ export class PhaseMapView implements View {
   setPalette(p: Palette): void { this.palette = p; }
   setStepsPerDispatch(n: number): void { this.stepsPerDispatch = n; }
   getRegion(): PhaseRegion { return { ...this.region }; }
+  getPhysics(): PhysicsParams { return { ...this.physics }; }
 
   setPhysics(p: PhysicsParams): void {
     this.physics = { ...p };

@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@vercel/analytics": "2.0.1",
+    "mediabunny": "1.59.0",
     "posthog-js": "1.386.6"
   }
 }
