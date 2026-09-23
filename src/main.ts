@@ -3,6 +3,10 @@ import posthog from './analytics';
 import { PendulumView } from './views/PendulumView';
 import { PhaseMapView } from './views/PhaseMapView';
 import { PhaseMapExporter } from './rendering/phaseMap/PhaseMapExporter';
+import {
+  PhaseMapAnimationExporter, maxAnimationResolution, planFrames, videoBitrate,
+  type AnimationFormat, type AnimationTiming, type VideoQuality,
+} from './rendering/phaseMap/PhaseMapAnimationExporter';
 import { getGPUDevice } from './rendering/device';
 import { DEFAULT_PHYSICS, DEFAULT_SIM } from './core/config';
 import type { ColorMode, Palette } from './core/types';
@@ -17,6 +21,10 @@ function showToast(msg: string, durationMs = 3000): void {
   el.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => el.classList.remove('visible'), durationMs);
+}
+
+function formatBytes(bytes: number): string {
+  return bytes < 1e6 ? `${Math.max(1, Math.round(bytes / 1e3))} KB` : `${(bytes / 1e6).toFixed(1)} MB`;
 }
 
 async function init(): Promise<void> {
@@ -77,8 +85,14 @@ async function init(): Promise<void> {
   const exportOverlay       = document.getElementById('export-overlay')        as HTMLElement;
   const exportSettings      = document.getElementById('export-settings')       as HTMLElement;
   const exportProgress      = document.getElementById('export-progress')       as HTMLElement;
+  const exportFormatSelect  = document.getElementById('export-format')         as HTMLSelectElement;
   const exportResSelect     = document.getElementById('export-res')            as HTMLSelectElement;
   const exportDurInput      = document.getElementById('export-dur')            as HTMLInputElement;
+  const exportLengthInput   = document.getElementById('export-length')         as HTMLInputElement;
+  const exportFpsSelect     = document.getElementById('export-fps')            as HTMLSelectElement;
+  const exportLoopSelect    = document.getElementById('export-loop')           as HTMLSelectElement;
+  const exportQualitySelect = document.getElementById('export-quality')        as HTMLSelectElement;
+  const exportColorsSelect  = document.getElementById('export-colors')         as HTMLSelectElement;
   const exportStepsHint     = document.getElementById('export-steps-hint')     as HTMLElement;
   const exportModeSelect    = document.getElementById('export-mode')           as HTMLSelectElement;
   const exportPaletteSelect = document.getElementById('export-palette')        as HTMLSelectElement;
@@ -383,18 +397,102 @@ async function init(): Promise<void> {
     });
 
     // ── Export modal ──────────────────────────────────────────────────────────
-    let activeExporter: PhaseMapExporter | null = null;
+    type ExportFormat = 'png' | AnimationFormat;
 
-    const updateStepsHint = (): void => {
-      const dur = parseFloat(exportDurInput.value) || 30;
-      const steps = Math.round(dur / DEFAULT_SIM.dt);
-      exportStepsHint.textContent = `≈ ${steps.toLocaleString()} steps / tile`;
+    const EXPORT_SIZES: Record<ExportFormat, { sizes: number[]; initial: number }> = {
+      png:  { sizes: [1000, 2000, 4000, 8000, 16000], initial: 4000 },
+      mp4:  { sizes: [480, 720, 1080, 1440, 2160],    initial: 1080 },
+      webm: { sizes: [480, 720, 1080, 1440, 2160],    initial: 1080 },
+      gif:  { sizes: [240, 360, 480, 600, 800],       initial: 480 },
+    };
+    // GIF delays are whole 1/100 s and browsers slow down anything under 2/100 s, so GIF tops out at 50 fps.
+    const VIDEO_FPS = [24, 30, 60];
+    const GIF_FPS   = [15, 20, 25, 30, 50];
+
+    const maxAnimationRes = maxAnimationResolution(device);
+    if (typeof VideoEncoder === 'undefined') {
+      for (const opt of exportFormatSelect.options) {
+        if (opt.value === 'mp4' || opt.value === 'webm') {
+          opt.disabled = true;
+          opt.textContent += ' (unsupported)';
+        }
+      }
+    }
+
+    let activeExporter: { cancel(): void } | null = null;
+
+    const exportFormat = (): ExportFormat => exportFormatSelect.value as ExportFormat;
+
+    const readTiming = (): AnimationTiming => ({
+      simSeconds:    Math.min(600, Math.max(1, parseFloat(exportDurInput.value) || 30)),
+      lengthSeconds: Math.min(120, Math.max(1, parseFloat(exportLengthInput.value) || 10)),
+      fps:           parseInt(exportFpsSelect.value, 10),
+      pingPong:      exportLoopSelect.value === 'pingpong',
+    });
+
+    const QUALITY_LABELS: Record<VideoQuality, string> = { standard: 'Standard', high: 'High', 'very-high': 'Very high' };
+
+    // Steps hint, plus the expected file size on each video quality option.
+    const updateExportHints = (): void => {
+      if (exportFormat() === 'png') {
+        const dur = parseFloat(exportDurInput.value) || 30;
+        const steps = Math.round(dur / DEFAULT_SIM.dt);
+        exportStepsHint.textContent = `≈ ${steps.toLocaleString()} steps / tile`;
+        return;
+      }
+      const timing = readTiming();
+      const plan = planFrames(timing);
+      exportStepsHint.textContent =
+        `${plan.outputFrames.toLocaleString()} frames · ${plan.stepsPerFrame} step${plan.stepsPerFrame > 1 ? 's' : ''}/frame`;
+
+      const resolution = parseInt(exportResSelect.value, 10);
+      for (const opt of exportQualitySelect.options) {
+        const quality = opt.value as VideoQuality;
+        const bytes = (videoBitrate(resolution, timing.fps, quality) / 8) * (plan.outputFrames / timing.fps);
+        opt.textContent = `${QUALITY_LABELS[quality]}  ·  ≈ ${formatBytes(bytes)}`;
+      }
+    };
+
+    // Replaces a select's options, keeping the current choice when it is still offered.
+    const fillOptions = (
+      select: HTMLSelectElement,
+      values: number[],
+      initial: number,
+      label: (n: number) => string,
+      enabled: (n: number) => boolean = () => true,
+    ): void => {
+      const current = parseInt(select.value, 10);
+      const chosen  = values.includes(current) && enabled(current) ? current : initial;
+      select.replaceChildren(...values.map(n => {
+        const opt = new Option(label(n), String(n), false, n === chosen);
+        opt.disabled = !enabled(n);
+        return opt;
+      }));
+    };
+
+    // Resolutions, frame rates and visible rows all depend on the format.
+    const syncExportFormat = (): void => {
+      const format = exportFormat();
+      const { sizes, initial } = EXPORT_SIZES[format];
+      if (format === 'png') {
+        fillOptions(exportResSelect, sizes, initial, n => {
+          const tiles = Math.ceil(n / 1000) ** 2;
+          return `${n} × ${n}  (${tiles} tile${tiles > 1 ? 's' : ''})`;
+        });
+      } else {
+        fillOptions(exportResSelect, sizes, initial, n => `${n} × ${n}`, n => n <= maxAnimationRes);
+        fillOptions(exportFpsSelect, format === 'gif' ? GIF_FPS : VIDEO_FPS, format === 'gif' ? 25 : 30, n => `${n} fps`);
+      }
+      exportSettings.querySelectorAll<HTMLElement>('[data-formats]').forEach(el => {
+        el.hidden = !el.dataset.formats!.split(' ').includes(format);
+      });
+      updateExportHints();
     };
 
     const openExportModal = (): void => {
       exportModeSelect.value    = mapModeSelect.value;
       exportPaletteSelect.value = mapPaletteSelect.value;
-      updateStepsHint();
+      updateExportHints();
       exportSettings.style.display = '';
       exportProgress.style.display = 'none';
       exportCloseBtn.style.display = '';
@@ -412,9 +510,15 @@ async function init(): Promise<void> {
       }
     };
 
+    syncExportFormat();
+    exportFormatSelect.addEventListener('change', syncExportFormat);
     mapExportBtn.addEventListener('click', openExportModal);
     exportCloseBtn.addEventListener('click', closeExportModal);
-    exportDurInput.addEventListener('input', updateStepsHint);
+    exportResSelect.addEventListener('change', updateExportHints);
+    exportDurInput.addEventListener('input', updateExportHints);
+    exportLengthInput.addEventListener('input', updateExportHints);
+    exportFpsSelect.addEventListener('change', updateExportHints);
+    exportLoopSelect.addEventListener('change', updateExportHints);
 
     exportOverlay.addEventListener('click', (e) => {
       if (e.target !== exportOverlay) return;
@@ -427,6 +531,7 @@ async function init(): Promise<void> {
     });
 
     exportGenerateBtn.addEventListener('click', async () => {
+      const format          = exportFormat();
       const resolution      = parseInt(exportResSelect.value, 10);
       const durationSeconds = parseFloat(exportDurInput.value) || 30;
       const colorMode       = exportModeSelect.value as ColorMode;
@@ -434,13 +539,20 @@ async function init(): Promise<void> {
       const region          = exportRegionSel.value === 'current'
         ? phaseMapView!.getRegion()
         : { theta1Min: -Math.PI, theta1Max: Math.PI, theta2Min: -Math.PI, theta2Max: Math.PI };
-      posthog.capture('phase map export started', { resolution, duration_seconds: durationSeconds, color_mode: colorMode, palette, region_type: exportRegionSel.value });
+      const physics         = phaseMapView!.getPhysics();
+      const timing          = readTiming();
+      const animationProps  = format === 'png'
+        ? {}
+        : { fps: timing.fps, length_seconds: timing.lengthSeconds, ping_pong: timing.pingPong };
+      posthog.capture('phase map export started', { format, resolution, duration_seconds: durationSeconds, color_mode: colorMode, palette, region_type: exportRegionSel.value, ...animationProps });
 
-      exportComposite.width  = resolution;
-      exportComposite.height = resolution;
+      // PNG tiles are composited into this canvas at full size; animations only mirror frames into it.
+      const previewSize = format === 'png' ? resolution : Math.min(resolution, 540);
+      exportComposite.width  = previewSize;
+      exportComposite.height = previewSize;
       const ctx = exportComposite.getContext('2d')!;
       ctx.fillStyle = '#000';
-      ctx.fillRect(0, 0, resolution, resolution);
+      ctx.fillRect(0, 0, previewSize, previewSize);
 
       exportSettings.style.display = 'none';
       exportProgress.style.display = '';
@@ -451,31 +563,65 @@ async function init(): Promise<void> {
       const wasPaused = phaseMapView!.paused;
       phaseMapView!.paused = true;
 
-      const exporter = new PhaseMapExporter();
-      activeExporter = exporter;
+      const onProgress = (fraction: number, label: string): void => {
+        exportProgBar.style.width = `${Math.round(fraction * 100)}%`;
+        exportProgLabel.textContent = label;
+      };
 
-      const result = await exporter.run(device, {
-        resolution,
-        durationSeconds,
-        colorMode,
-        palette,
-        region,
-        maxFlipTime: 50,
-        compositeCanvas: exportComposite,
-        onProgress: (fraction, label) => {
-          exportProgBar.style.width = `${Math.round(fraction * 100)}%`;
-          exportProgLabel.textContent = label;
-        },
-      });
+      let done   = false;
+      let failed = false;
+      try {
+        if (format === 'png') {
+          const exporter = new PhaseMapExporter();
+          activeExporter = exporter;
+          done = await exporter.run(device, {
+            resolution,
+            durationSeconds,
+            colorMode,
+            palette,
+            region,
+            physics,
+            maxFlipTime: 50,
+            compositeCanvas: exportComposite,
+            onProgress,
+          }) === 'done';
+        } else {
+          const exporter = new PhaseMapAnimationExporter();
+          activeExporter = exporter;
+          const result = await exporter.run(device, {
+            format,
+            resolution,
+            ...timing,
+            quality:   exportQualitySelect.value as VideoQuality,
+            gifColors: parseInt(exportColorsSelect.value, 10),
+            colorMode,
+            palette,
+            region,
+            physics,
+            maxFlipTime: 50,
+            previewCanvas: exportComposite,
+            onProgress,
+          });
+          if (result.status === 'done') {
+            done = true;
+            showToast(`Saved ${result.filename} · ${formatBytes(result.bytes)}`, 5000);
+          }
+        }
+      } catch (err) {
+        failed = true;
+        console.error(err);
+        showToast(`Export failed: ${err instanceof Error ? err.message : String(err)}`, 6000);
+        posthog.capture('phase map export failed', { format, resolution, error: String(err) });
+      } finally {
+        activeExporter = null;
+        phaseMapView!.paused = wasPaused;
+      }
 
-      activeExporter = null;
-      phaseMapView!.paused = wasPaused;
-
-      if (result === 'done') {
-        posthog.capture('phase map export completed', { resolution, duration_seconds: durationSeconds, color_mode: colorMode, palette });
+      if (done) {
+        posthog.capture('phase map export completed', { format, resolution, duration_seconds: durationSeconds, color_mode: colorMode, palette, ...animationProps });
         closeExportModal();
       } else {
-        posthog.capture('phase map export cancelled', { resolution, duration_seconds: durationSeconds });
+        if (!failed) posthog.capture('phase map export cancelled', { format, resolution, duration_seconds: durationSeconds });
         exportSettings.style.display = '';
         exportProgress.style.display = 'none';
         exportCloseBtn.style.display = '';

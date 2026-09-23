@@ -1,7 +1,7 @@
 import { PhaseMapBackend } from './PhaseMapBackend';
 import { PhaseMapRenderer } from './PhaseMapRenderer';
-import { DEFAULT_PHYSICS, DEFAULT_SIM } from '../../core/config';
-import type { ColorMode, Palette, PhaseRegion } from '../../core/types';
+import { DEFAULT_SIM } from '../../core/config';
+import type { ColorMode, Palette, PhaseRegion, PhysicsParams } from '../../core/types';
 
 const TILE_SIZE        = 1000;
 const STEPS_PER_BATCH  = 20;
@@ -13,6 +13,7 @@ export interface ExportOptions {
   colorMode: ColorMode;
   palette: Palette;
   region: PhaseRegion;
+  physics: PhysicsParams;
   maxFlipTime: number;
   compositeCanvas: HTMLCanvasElement;
   onProgress: (fraction: number, label: string) => void;
@@ -24,7 +25,7 @@ export class PhaseMapExporter {
   cancel(): void { this.cancelled = true; }
 
   async run(device: GPUDevice, opts: ExportOptions): Promise<'done' | 'cancelled'> {
-    const { resolution, durationSeconds, colorMode, palette, region, maxFlipTime, compositeCanvas } = opts;
+    const { resolution, durationSeconds, colorMode, palette, region, physics, maxFlipTime, compositeCanvas } = opts;
     const compositeCtx    = compositeCanvas.getContext('2d')!;
     const freeze          = colorMode === 'flipTime';
     const totalDispatches = Math.ceil(durationSeconds / DEFAULT_SIM.dt / STEPS_PER_BATCH);
@@ -56,7 +57,7 @@ export class PhaseMapExporter {
           renderer.setView(tileRegion);
 
           for (let d = 0; d < totalDispatches && !this.cancelled; d++) {
-            backend.step(DEFAULT_PHYSICS, DEFAULT_SIM.dt, STEPS_PER_BATCH, freeze);
+            backend.step(physics, DEFAULT_SIM.dt, STEPS_PER_BATCH, freeze);
 
             if (d % PREVIEW_INTERVAL === 0) {
               renderer.render({ colorMode, palette, maxFlipTime });

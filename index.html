@@ -92,7 +92,7 @@
             <input type="range" id="mapSpeed" min="1" max="50" value="10" />
             <span class="ctrl-value" id="mapSpeedLabel">10</span>
           </div>
-          <button id="mapExportBtn" class="btn-magenta">↓ Export PNG</button>
+          <button id="mapExportBtn" class="btn-magenta">↓ Export</button>
 
           <div class="phys-divider"></div>
           <div class="phys-panel-section">
@@ -458,19 +458,55 @@ field:   θ₁    ω₁    θ₂    ω₂  flipCount  firstFlipTime  elapsed  fr
 
       <div id="export-settings">
         <div class="export-row">
-          <label>Resolution</label>
-          <select id="export-res">
-            <option value="1000">1000 × 1000 &nbsp;(1 tile)</option>
-            <option value="2000">2000 × 2000 &nbsp;(4 tiles)</option>
-            <option value="4000" selected>4000 × 4000 &nbsp;(16 tiles)</option>
-            <option value="8000">8000 × 8000 &nbsp;(64 tiles)</option>
-            <option value="16000">16000 × 16000 &nbsp;(256 tiles)</option>
+          <label>Format</label>
+          <select id="export-format">
+            <option value="png" selected>PNG image</option>
+            <option value="mp4">MP4 video</option>
+            <option value="webm">WebM video</option>
+            <option value="gif">GIF (loops)</option>
           </select>
         </div>
         <div class="export-row">
-          <label>Duration</label>
+          <label>Resolution</label>
+          <select id="export-res"></select>
+        </div>
+        <div class="export-row">
+          <label>Sim time</label>
           <input type="number" id="export-dur" value="30" min="1" max="600" step="1" />
           <span class="export-unit">seconds</span>
+        </div>
+        <div class="export-row" data-formats="mp4 webm gif">
+          <label>Length</label>
+          <input type="number" id="export-length" value="10" min="1" max="120" step="1" />
+          <span class="export-unit">seconds</span>
+        </div>
+        <div class="export-row" data-formats="mp4 webm gif">
+          <label>Frame rate</label>
+          <select id="export-fps"></select>
+        </div>
+        <div class="export-row" data-formats="mp4 webm gif">
+          <label>Loop</label>
+          <select id="export-loop">
+            <option value="restart" selected>Restart</option>
+            <option value="pingpong">Ping-pong (seamless)</option>
+          </select>
+        </div>
+        <div class="export-row" data-formats="mp4 webm">
+          <label>Quality</label>
+          <select id="export-quality">
+            <option value="standard">Standard</option>
+            <option value="high" selected>High</option>
+            <option value="very-high">Very high</option>
+          </select>
+        </div>
+        <div class="export-row" data-formats="gif">
+          <label>Colours</label>
+          <select id="export-colors">
+            <option value="256" selected>256</option>
+            <option value="128">128</option>
+            <option value="64">64</option>
+            <option value="32">32</option>
+          </select>
         </div>
         <div id="export-steps-hint" class="export-hint">≈ 6,000 steps / tile</div>
         <div class="export-row">

@@ -842,6 +842,11 @@ button:active {
   flex-shrink: 0;
 }
 
+/* Rows that don't apply to the chosen format (see data-formats) */
+#export-settings [hidden] {
+  display: none;
+}
+
 .export-row select,
 .export-row input[type="number"] {
   flex: 1;

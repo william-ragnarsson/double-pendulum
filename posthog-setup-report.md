@@ -23,9 +23,10 @@ In this session, 9 new `posthog.capture()` calls were added across 3 files. The 
 | `phase map played` | User resumes the phase map computation | `src/main.ts` |
 | `phase map paused` | User pauses the phase map computation | `src/main.ts` |
 | `phase map reset` | User resets the phase map to its initial state | `src/main.ts` |
-| `phase map export started` | User starts a phase map export (`resolution`, `duration_seconds`, `color_mode`, `palette`, `region_type`) | `src/main.ts` |
-| `phase map export completed` | Export finishes and PNG is downloaded | `src/main.ts` |
+| `phase map export started` | User starts a phase map export (`format`: png, mp4, webm, gif; `resolution`, `duration_seconds`, `color_mode`, `palette`, `region_type`; animations add `fps`, `length_seconds`, `ping_pong`) | `src/main.ts` |
+| `phase map export completed` | Export finishes and the file is downloaded | `src/main.ts` |
 | `phase map export cancelled` | User cancels an in-progress export | `src/main.ts` |
+| `phase map export failed` | An export throws, e.g. no usable video encoder (`format`, `resolution`, `error`) | `src/main.ts` |
 | `phase map probe clicked` | User clicks the map to probe an initial condition (`theta1`, `theta2`) | `src/views/PhaseMapView.ts` |
 | `pendulum dragged` | User finishes dragging a pendulum bob to set initial conditions (`rod`) | `src/views/PendulumView.ts` |
 | `tutorial started` | First-time visitor begins the onboarding tutorial | `src/tutorial/Tutorial.ts` |
